@@ -1,0 +1,4 @@
+- Having two dense layers overfit no matter the level of Dropout
+- Only one output layer still overfit
+- Increasing the batch size seems to be only cure so far
+- Dropout after final layer really helps overfitting, but can underfit super bad
