@@ -21,7 +21,7 @@ model_name = 'Inception'
 
 # Defining some parameters for the model
 batch_size = 128
-epochs = 12
+num_epochs = 12
 dense1 = 32
 dense2 = 12
 pooling = 'avg'
@@ -50,36 +50,38 @@ base_model = InceptionV3(weights='imagenet', include_top=False, pooling=pooling)
 if CALCULATE_BN:
     print('Calculating bottleneck features for dataset.')
 
-    train_features = np.zeros((0, 2048))
-    train_labels = np.zeros((0, 12))
-    val_features = np.zeros((0, 2048))
-    val_labels = np.zeros((0, 12))
+    X_train = np.zeros((0, 2048))
+    y_train = np.zeros((0, 12))
+    X_val = np.zeros((0, 2048))
+    y_val = np.zeros((0, 12))
 
     num_batches = len(train_data)
-    i=1
-    for batch_x, batch_y in train_data:
+    i = 1
+    while i <= num_batches:
         print('Working on training batch: {}/{}'.format(i, num_batches))
+        batch_x, batch_y = train_data.next()
         train_predictions = base_model.predict(batch_x)
-        np.concatenate((train_features, train_predictions), axis=0)
-        np.concatenate((train_labels, batch_y), axis=0)
-        i+=1
+        X_train = np.concatenate((X_train, train_predictions), axis=0)
+        y_train = np.concatenate((y_train, batch_y), axis=0)
+        i += 1
 
     print('Saving training features to disk.')
-    np.save(bot_dir + model_name + '_trainscores.npy', train_features)
-    np.save(bot_dir + model_name + '_trainlabels.npy', train_labels)
+    np.save(bot_dir + model_name + '_trainscores.npy', X_train)
+    np.save(bot_dir + model_name + '_trainlabels.npy', y_train)
 
     num_batches = len(val_data)
-    i=1
-    for batch_x, batch_y in val_data:
+    i = 1
+    while i <= num_batches:
         print('Working on validation batch: {}/{}'.format(i, num_batches))
+        batch_x, batch_y = val_data.next()
         val_predictions = base_model.predict(batch_x)
-        np.concatenate((val_features, val_predictions), axis=0)
-        np.concatenate((val_labels, batch_y), axis=0)
-        i+=1
+        X_val = np.concatenate((X_val, val_predictions), axis=0)
+        y_val = np.concatenate((y_val, batch_y), axis=0)
+        i += 1
 
     print('Saving validation features to disk.')
-    np.save(bot_dir + model_name + '_valscores.npy', val_features)
-    np.save(bot_dir + model_name + '_vallabels.npy', val_labels)
+    np.save(bot_dir + model_name + '_valscores.npy', X_val)
+    np.save(bot_dir + model_name + '_vallabels.npy', y_val)
 
 else:
     print('Loading bottleneck scores from disk.')
@@ -88,32 +90,33 @@ else:
     X_val = np.load(bot_dir + model_name + '_valscores.npy')
     y_val = np.load(bot_dir + model_name + '_vallabels.npy')
 
-# Freezing weights for transfer-learning:
-for layer in base_model.layers:
-    layer.trainable = False
 
 # Adding in the new layers
 model = Sequential()
-model.add(base_model)
-model.add(GlobalAveragePooling2D())
 # model.add(Dense(dense1,activation="relu"))
 # model.add(Dropout(.5))
-model.add(Dense(dense2, activation="softmax", kernel_regularizer=l2(0.01)))
+model.add(Dense(dense2,input_shape=(2048,), activation="softmax", kernel_regularizer=l2(0.01)))
 
 # Compiling/fitting the model for transfer-learning
 model.compile(optimizer="Adadelta", loss='categorical_crossentropy', metrics=['accuracy'])
 print(model.summary())
-model.fit_generator(train_data, epochs=epochs, validation_data=val_data, verbose=1)
+model.fit(x=X_train,y=y_train,batch_size=batch_size,epochs=num_epochs,verbose=1,validation_data=(X_val,y_val))
 
 # Fine-tuning the model
 if FINE_TUNE:
     for layer in base_model.layers[num_freeze_layers:]:
         layer.trainable = True
+
+    new_model = Sequential()
+    new_model.add(base_model)
+    new_model.add(model)
+
     print("=================================================================")
     print("Fine-tuning")
     print("=================================================================")
-    model.compile(optimizer=RMSprop(lr=.001), loss='categorical_crossentropy', metrics=['accuracy'])
-    print(model.summary())
-    model.fit_generator(train_data, epochs=epochs, validation_data=val_data, verbose=1)
-
-model.save('models/' + model_name + '.h5')
+    new_model.compile(optimizer=RMSprop(lr=.001), loss='categorical_crossentropy', metrics=['accuracy'])
+    print(new_model.summary())
+    new_model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=num_epochs, verbose=1, validation_data=(X_val, y_val))
+    new_model.save('models/' + model_name + '.h5')
+else:
+    model.save('models/' + model_name + '.h5')
