@@ -11,7 +11,7 @@ from keras.optimizers import RMSprop
 
 # Some flag definitions
 FINE_TUNE = True
-CALCULATE_BN = True
+CALCULATE_BN = False
 
 # File related variables
 train_dir = 'data/train/'
@@ -21,7 +21,7 @@ model_name = 'Inception'
 
 # Defining some parameters for the model
 batch_size = 128
-num_epochs = 12
+num_epochs = 30
 dense1 = 32
 dense2 = 12
 pooling = 'avg'
@@ -38,16 +38,17 @@ train_gen = image.ImageDataGenerator(validation_split=.2, preprocessing_function
 test_gen = image.ImageDataGenerator(preprocessing_function=preprocess_input)
 
 # Creating the actual data generator objects for the different sets
-train_data = train_gen.flow_from_directory(train_dir, subset="training", batch_size=batch_size, shuffle=False)
-val_data = train_gen.flow_from_directory(train_dir, subset="validation", batch_size=batch_size, shuffle=False)
+train_data = train_gen.flow_from_directory(train_dir, subset="training", batch_size=batch_size, shuffle=False,target_size=(299,299))
+val_data = train_gen.flow_from_directory(train_dir, subset="validation", batch_size=batch_size, shuffle=False,target_size=(299,299))
 test_data = test_gen.flow_from_directory(test_dir, batch_size=batch_size, class_mode=None)
 
-# Loading the Xception base model
-print('Loading base model...')
-# base_model = Xception(weights='imagenet',include_top=False,pooling=pooling)
-base_model = InceptionV3(weights='imagenet', include_top=False, pooling=pooling)
 
 if CALCULATE_BN:
+    # Loading the Xception base model
+    print('Loading base model...')
+    # base_model = Xception(weights='imagenet',include_top=False,pooling=pooling)
+    base_model = InceptionV3(weights='imagenet', include_top=False, pooling=pooling)
+
     print('Calculating bottleneck features for dataset.')
 
     X_train = np.zeros((0, 2048))
@@ -104,6 +105,11 @@ model.fit(x=X_train,y=y_train,batch_size=batch_size,epochs=num_epochs,verbose=1,
 
 # Fine-tuning the model
 if FINE_TUNE:
+    # Loading the Xception base model
+    print('Loading base model...')
+    # base_model = Xception(weights='imagenet',include_top=False,pooling=pooling)
+    base_model = InceptionV3(weights='imagenet', include_top=False, pooling=pooling)
+    print(base_model.input)
     for layer in base_model.layers[num_freeze_layers:]:
         layer.trainable = True
 
@@ -116,7 +122,7 @@ if FINE_TUNE:
     print("=================================================================")
     new_model.compile(optimizer=RMSprop(lr=.001), loss='categorical_crossentropy', metrics=['accuracy'])
     print(new_model.summary())
-    new_model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=num_epochs, verbose=1, validation_data=(X_val, y_val))
+    new_model.fit_generator(train_data, epochs=num_epochs, validation_data=val_data, verbose=1)
     new_model.save('models/' + model_name + '.h5')
 else:
     model.save('models/' + model_name + '.h5')
